@@ -1,6 +1,9 @@
 extern crate serial;
 extern crate uuid;
+extern crate byteorder;
 
+use std::io::Cursor;
+use byteorder::{BigEndian, ReadBytesExt};
 use uuid::Uuid;
 use std::iter::Iterator;
 use std::time::Duration;
@@ -9,6 +12,7 @@ use std::io::prelude::*;
 use serial::prelude::*;
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::sync::Arc;
 
 /// Тип соответствует представлению последовательного порта
 type ISerialPort = Rc<RefCell<SerialPort>>;
@@ -57,7 +61,7 @@ trait ICounter {
     type Consumption;
     type GUID;
     /// Конструктор
-    fn new(channel: Box<ICounterParent>) -> Self
+    fn new(channel: Arc<ICounterParent>) -> Self
     where
         Self: Sized;
     /// Уникальный GUID устройства
@@ -67,7 +71,7 @@ trait ICounter {
     /// Добавление в канал связи команд
     fn communicate(&self);
     /// Обработка ответов
-    fn processing(&self, request: Vec<u8>, response: Vec<u8>);
+    fn processing(&mut self, request: Vec<u8>, response: Vec<u8>);
     /// Вернуть расход
     fn consumption(&self) -> Self::Consumption;
     /// Тип счётчика
@@ -87,7 +91,7 @@ trait ICounter {
     /// Установим интервал между поверками
     fn set_verification_interval(&mut self, interval: Duration) -> std::io::Result<()>;
     /// Вернуть канал связи
-    fn parent(&self) -> Box<ICounterParent>;
+    fn parent(&self) -> Arc<ICounterParent>;
 }
 
 trait IElectroCounter: ICounter {
@@ -192,8 +196,9 @@ impl<'a> ILinkChannel for SerialChannel<'a> {
 }
 
 struct IMercury230 {
-    _parent: Box<ICounterParent>,
-    GUID: String,
+    _parent: Arc<ICounterParent>,
+    _consumption: f64,
+    guid: IGUID,
 }
 
 impl ICounter for IMercury230 {
@@ -202,19 +207,20 @@ impl ICounter for IMercury230 {
     type GUID = IGUID;
 
     // Конструктор
-    fn new(channel: Box<ICounterParent>) -> Self {
+    fn new(channel: Arc<ICounterParent>) -> Self {
         IMercury230 {
             _parent: channel,
-            GUID: String::new(),
+            _consumption: 0.0,
+            guid: String::new(),
         }
     }
 
     // Уникальный GUID устройства
     fn guid(&mut self) -> Self::GUID {
-        if self.GUID.is_empty() {
-            self.GUID = format!("{}", Uuid::new_v4());        
+        if self.guid.is_empty() {
+            self.guid = format!("{}", Uuid::new_v4());        
         }
-        format!("{}", &self.GUID)
+        format!("{}", &self.guid)
     }
 
     // Добавление в канал связи команд
@@ -223,13 +229,22 @@ impl ICounter for IMercury230 {
     }
 
     // Обработка ответов
-    fn processing(&self, request: Vec<u8>, response: Vec<u8>) {
+    fn processing(&mut self, request: Vec<u8>, response: Vec<u8>) {
 
+        match (request[2], request[3]) {
+            (5, 0) => { // Был запрос о расходе
+                let tariff = request[4];                
+                let mut rdr = Cursor::new(vec![ response[4], response[5], response[2], response[3] ]);
+                self._consumption = rdr.read_f64::<BigEndian>().unwrap() / 1000.0;
+                println!("Тариф: {} - Расход: {}", tariff, self._consumption);
+            },
+            _ => (),
+        }
     }
 
     // Вернуть расход
     fn consumption(&self) -> Self::Consumption {
-        1.1
+        self._consumption
     }
 
     // Тип счётчика
@@ -268,8 +283,8 @@ impl ICounter for IMercury230 {
     }
 
     // Вернуть канал связи
-    fn parent(&self) -> Box<ICounterParent> {
-        self._parent
+    fn parent(&self) -> Arc<ICounterParent> {
+        self._parent.clone()
     }
 }
 

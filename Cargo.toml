@@ -5,4 +5,5 @@ authors = ["sinitcin <antony@email.su>"]
 
 [dependencies]
 serial="0.4"
-uuid = { version = "0.5", features = ["v4"] }
+uuid={ version = "0.5", features = ["v4"] }
+byteorder="1.2"
