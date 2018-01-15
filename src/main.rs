@@ -1,7 +1,9 @@
 extern crate serial;
 extern crate uuid;
 extern crate byteorder;
+extern crate crc;
 
+use crc::{crc32, Hasher32};
 use std::io::Cursor;
 use byteorder::{BigEndian, ReadBytesExt};
 use uuid::Uuid;
@@ -92,6 +94,7 @@ trait ICounter {
     fn set_verification_interval(&mut self, interval: Duration) -> std::io::Result<()>;
     /// Вернуть канал связи
     fn parent(&self) -> Arc<ICounterParent>;
+
 }
 
 trait IElectroCounter: ICounter {
@@ -199,6 +202,7 @@ struct IMercury230 {
     _parent: Arc<ICounterParent>,
     _consumption: f64,
     guid: IGUID,
+    address: u8,
 }
 
 impl ICounter for IMercury230 {
@@ -212,6 +216,7 @@ impl ICounter for IMercury230 {
             _parent: channel,
             _consumption: 0.0,
             guid: String::new(),
+            address: 0,
         }
     }
 
@@ -226,6 +231,17 @@ impl ICounter for IMercury230 {
     // Добавление в канал связи команд
     fn communicate(&self) {
 
+        // Генерируем пакет для получения расхода
+        let mut consumption = vec![self.address, 05, 00, 01];       
+        let my_crc = crc32::checksum_ieee(&consumption[..]);
+        let mut my_crc: Vec<u8> = unsafe {
+            Vec::from_raw_parts(my_crc as *mut u8, 4, 4)
+        };
+        consumption.append(&mut my_crc);
+
+        // Список пакетов
+        let command_pull = vec![consumption];
+        self.parent();
     }
 
     // Обработка ответов
