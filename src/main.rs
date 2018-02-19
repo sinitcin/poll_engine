@@ -40,9 +40,9 @@ trait ILinkChannel {
     /// Обмен данными программируется в этом методе
     fn processing(&mut self);
     /// Добавить дочерний элемент
-    fn new_child(&mut self, child: Rc<ICounter>);
+    fn new_child(&mut self, child: Rc<RefCell<ICounter>>);
     /// Список дочерних элементов
-    fn childs(&self) -> Vec<Rc<ICounter>>;
+    fn childs(&self) -> Vec<Rc<RefCell<ICounter>>>;
 }
 
 trait ICounter {
@@ -102,7 +102,7 @@ struct SerialChannel {
     port: Option<ISerialPort>,
     port_name: String,
     baud_rate: serial::BaudRate,
-    _child: Vec<Rc<ICounter>>,
+    _child: Vec<Rc<RefCell<ICounter>>>,
 }
 
 impl ILinkChannel for SerialChannel {
@@ -152,27 +152,22 @@ impl ILinkChannel for SerialChannel {
         result
     }
 
+    // Производим обмен со всеми счётчиками
     fn processing(&mut self) {
-        // Перенастроем порт
-        self.reconf();
 
-        // Соберём данные для отправки
-        let buf = (0..255).collect();
-
-        // Отправим пакет
-        self.send(&buf);
-
-        // Прочитаем ответ
-        let _ = self.read();
+        for mut counter in &mut self._child {            
+            let mut counter_borrowed = counter.borrow_mut();
+            counter_borrowed.communicate();
+        }
     }
 
     // Добавить дочерний элемент
-    fn new_child(&mut self, child: Rc<ICounter>) {
+    fn new_child(&mut self, child: Rc<RefCell<ICounter>>) {
         self._child.push(child);
     }
 
     // Список дочерних элементов
-    fn childs(&self) -> Vec<Rc<ICounter>> {
+    fn childs(&self) -> Vec<Rc<RefCell<ICounter>>> {
         self._child.clone()
     }
 }
@@ -180,6 +175,8 @@ impl ILinkChannel for SerialChannel {
 struct IMercury230 {
     _parent: Rc<RefCell<ILinkChannel>>,
     _consumption: IConsumption,
+    _serial: Option<String>,
+    _name: Option<String>,
     guid: IGUID,
     address: u8,
 }
@@ -191,6 +188,8 @@ impl ICounter for IMercury230 {
         IMercury230 {
             _parent: channel,
             _consumption: 0.0,
+            _serial: None,
+            _name: None,
             guid: String::new(),
             address: 0,
         }
@@ -256,12 +255,12 @@ impl ICounter for IMercury230 {
 
     // Имя счётчика
     fn name(&self) -> Option<String> {
-        None
+        self._name.clone()
     }
 
     // Серийный номер
     fn serial(&self) -> Option<String> {
-        None
+        self._serial.clone()
     }
 
     // Выполнить поверку
@@ -319,5 +318,8 @@ impl IElectroCounter for IMercury230 {
 impl IFaceMercury230 for IMercury230 {}
 
 fn main() {
-    let _ = SerialChannel::new();
+    let mut channel = Rc::new(RefCell::new(SerialChannel::new()));
+    let counter = IMercury230::new(channel.clone()); 
+    let mut channel_borrow = channel.borrow_mut();
+    channel_borrow.communicate();
 }
