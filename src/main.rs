@@ -14,7 +14,6 @@ use std::io::prelude::*;
 use serial::prelude::*;
 use std::rc::Rc;
 use std::cell::RefCell;
-use std::sync::Arc;
 
 /// Тип соответствует представлению последовательного порта
 type ISerialPort = Rc<RefCell<SerialPort>>;
@@ -41,20 +40,20 @@ trait ILinkChannel {
     /// Обмен данными программируется в этом методе
     fn processing(&mut self);
     /// Добавить дочерний элемент
-    fn new_child(&mut self, child: Arc<ICounter>);
+    fn new_child(&mut self, child: Rc<ICounter>);
     /// Список дочерних элементов
-    fn childs(&self) -> Vec<Arc<ICounter>>;
+    fn childs(&self) -> Vec<Rc<ICounter>>;
 }
 
 trait ICounter {
     /// Конструктор
-    fn new(channel: Arc<RefCell<ILinkChannel>>) -> Self
+    fn new(channel: Rc<RefCell<ILinkChannel>>) -> Self
     where
         Self: Sized;
     /// Уникальный GUID устройства
     fn guid(&mut self) -> IGUID;
     /// Добавление в канал связи команд
-    fn communicate(&self);
+    fn communicate(&mut self);
     /// Обработка ответов
     fn processing(&mut self, request: Vec<u8>, response: Vec<u8>);
     /// Вернуть расход
@@ -76,7 +75,7 @@ trait ICounter {
     /// Установим интервал между поверками
     fn set_verification_interval(&mut self, interval: Duration) -> std::io::Result<()>;
     /// Вернуть канал связи
-    fn parent(&self) -> Arc<RefCell<ILinkChannel>>;
+    fn parent(&self) -> Rc<RefCell<ILinkChannel>>;
 }
 
 trait IElectroCounter: ICounter {
@@ -103,10 +102,11 @@ struct SerialChannel {
     port: Option<ISerialPort>,
     port_name: String,
     baud_rate: serial::BaudRate,
-    _child: Vec<Arc<ICounter>>,
+    _child: Vec<Rc<ICounter>>,
 }
 
 impl ILinkChannel for SerialChannel {
+
     fn new() -> SerialChannel {
         SerialChannel {
             port: None,
@@ -167,26 +167,27 @@ impl ILinkChannel for SerialChannel {
     }
 
     // Добавить дочерний элемент
-    fn new_child(&mut self, child: Arc<ICounter>) {
+    fn new_child(&mut self, child: Rc<ICounter>) {
         self._child.push(child);
     }
 
     // Список дочерних элементов
-    fn childs(&self) -> Vec<Arc<ICounter>> {
+    fn childs(&self) -> Vec<Rc<ICounter>> {
         self._child.clone()
     }
 }
 
 struct IMercury230 {
-    _parent: Arc<RefCell<ILinkChannel>>,
+    _parent: Rc<RefCell<ILinkChannel>>,
     _consumption: IConsumption,
     guid: IGUID,
     address: u8,
 }
 
 impl ICounter for IMercury230 {
+    
     // Конструктор
-    fn new(channel: Arc<RefCell<ILinkChannel>>) -> Self {
+    fn new(channel: Rc<RefCell<ILinkChannel>>) -> Self {
         IMercury230 {
             _parent: channel,
             _consumption: 0.0,
@@ -204,20 +205,26 @@ impl ICounter for IMercury230 {
     }
 
     // Добавление в канал связи команд
-    fn communicate(&self) {
+    fn communicate(&mut self) {
+
+        // Получаем канал связи для работы 
+        let parent = self.parent();
+        let mut parent_borrowed = parent.borrow_mut();
+
+        // Настройка соединения
+        parent_borrowed.reconf();
+
         // Генерируем пакет для получения расхода
         let mut consumption = vec![self.address, 05, 00, 01];
         let my_crc = crc32::checksum_ieee(&consumption[..]);
         let mut my_crc: Vec<u8> = unsafe { Vec::from_raw_parts(my_crc as *mut u8, 4, 4) };
         consumption.append(&mut my_crc);
 
-        // Список пакетов
-        let command_pull = vec![consumption];
+        // Отсылаем пакет, получаем ответ и обрабатываем
+        parent_borrowed.send(&consumption);
+        let question = parent_borrowed.read();
 
-        let parent = self.parent();
-        let mut parent_borrowed = parent.borrow_mut();
-        parent_borrowed.reconf();
-        
+        self.processing(consumption, question);        
     }
 
     // Обработка ответов
@@ -278,7 +285,7 @@ impl ICounter for IMercury230 {
     }
 
     // Вернуть канал связи
-    fn parent(&self) -> Arc<RefCell<ILinkChannel>> {
+    fn parent(&self) -> Rc<RefCell<ILinkChannel>> {
         self._parent.clone()
     }
 }
