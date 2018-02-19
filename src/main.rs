@@ -48,7 +48,7 @@ trait ILinkChannel {
 
 trait ICounter {
     /// Конструктор
-    fn new(channel: Arc<ILinkChannel>) -> Self
+    fn new(channel: Arc<RefCell<ILinkChannel>>) -> Self
     where
         Self: Sized;
     /// Уникальный GUID устройства
@@ -76,7 +76,7 @@ trait ICounter {
     /// Установим интервал между поверками
     fn set_verification_interval(&mut self, interval: Duration) -> std::io::Result<()>;
     /// Вернуть канал связи
-    fn parent(&self) -> Arc<ILinkChannel>;
+    fn parent(&self) -> Arc<RefCell<ILinkChannel>>;
 }
 
 trait IElectroCounter: ICounter {
@@ -178,7 +178,7 @@ impl ILinkChannel for SerialChannel {
 }
 
 struct IMercury230 {
-    _parent: Arc<ILinkChannel>,
+    _parent: Arc<RefCell<ILinkChannel>>,
     _consumption: IConsumption,
     guid: IGUID,
     address: u8,
@@ -186,7 +186,7 @@ struct IMercury230 {
 
 impl ICounter for IMercury230 {
     // Конструктор
-    fn new(channel: Arc<ILinkChannel>) -> Self {
+    fn new(channel: Arc<RefCell<ILinkChannel>>) -> Self {
         IMercury230 {
             _parent: channel,
             _consumption: 0.0,
@@ -214,10 +214,10 @@ impl ICounter for IMercury230 {
         // Список пакетов
         let command_pull = vec![consumption];
 
-        // АТЕНШЕН
-        // --
-        // Вот как получить экземпляр типажа из ARC, чтобы можно было вызвать его метод?
-        let mut parent = Arc::make_mut(&mut self.parent());
+        let parent = self.parent();
+        let mut parent_borrowed = parent.borrow_mut();
+        parent_borrowed.reconf();
+        
     }
 
     // Обработка ответов
@@ -278,7 +278,7 @@ impl ICounter for IMercury230 {
     }
 
     // Вернуть канал связи
-    fn parent(&self) -> Arc<ILinkChannel> {
+    fn parent(&self) -> Arc<RefCell<ILinkChannel>> {
         self._parent.clone()
     }
 }
