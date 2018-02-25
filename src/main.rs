@@ -318,9 +318,10 @@ impl IElectroCounter for IMercury230 {
 impl IFaceMercury230 for IMercury230 {}
 
 fn main() {
-    let mut channel = Rc::new(RefCell::new(SerialChannel::new()));
-    let counter = IMercury230::new(channel.clone());
-    
+    let channel = Rc::new(RefCell::new(SerialChannel::new()));
+    let counter = IMercury230::new(channel.clone());    
     let mut channel_borrow = channel.borrow_mut();
+    channel_borrow.new_child(Rc::new(RefCell::new(counter)));
+    
     channel_borrow.processing();
 }
