@@ -160,7 +160,7 @@ impl CounterList {
     fn processing(&mut self) {
         for mut counter in &mut self.counters {
             if let Ok(mut counter_borrowed) = counter.try_borrow_mut() {
-                counter_borrowed.communicate();
+               counter_borrowed.communicate();
             }
         }
     }
@@ -313,7 +313,6 @@ fn main() {
     let channel = Rc::new(RefCell::new(SerialChannel::new()));
     let counter = IMercury230::new(channel.clone());
     let mut list = CounterList::new();
-    println!("Hello!");
     list.counters.push(Box::new(RefCell::new(counter)));
 
     list.processing();
