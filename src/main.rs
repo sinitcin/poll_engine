@@ -37,12 +37,6 @@ trait ILinkChannel {
     fn send(&mut self, data: &Vec<u8>);
     /// Прочитать данные
     fn read(&mut self) -> Vec<u8>;
-    /// Обмен данными программируется в этом методе
-    fn processing(&mut self);
-    /// Добавить дочерний элемент
-    fn new_child(&mut self, child: Rc<RefCell<ICounter>>);
-    /// Список дочерних элементов
-    fn childs(&self) -> &Vec<Rc<RefCell<ICounter>>>;
 }
 
 trait ICounter {
@@ -150,24 +144,25 @@ impl ILinkChannel for SerialChannel {
         };
         result
     }
+}
+
+#[derive(Default)]
+struct CounterList {
+    counters: Vec<Box<RefCell<dyn ICounter>>>,
+}
+
+impl CounterList {
+    fn new() -> Self {
+        Self::default()
+    }
 
     // Производим обмен со всеми счётчиками
     fn processing(&mut self) {
-        for mut counter in &mut self._child {
+        for mut counter in &mut self.counters {
             if let Ok(mut counter_borrowed) = counter.try_borrow_mut() {
                 counter_borrowed.communicate();
             }
         }
-    }
-
-    // Добавить дочерний элемент
-    fn new_child(&mut self, child: Rc<RefCell<ICounter>>) {
-        self._child.push(child);
-    }
-
-    // Список дочерних элементов
-    fn childs(&self) -> &Vec<Rc<RefCell<ICounter>>> {
-        &self._child
     }
 }
 
@@ -317,12 +312,13 @@ impl IFaceMercury230 for IMercury230 {}
 fn main() {
     let channel = Rc::new(RefCell::new(SerialChannel::new()));
     let counter = IMercury230::new(channel.clone());
-    let mut channel_borrow = channel.borrow_mut();
-    channel_borrow.new_child(Rc::new(RefCell::new(counter)));
+    let mut list = CounterList::new();
+    println!("Hello!");
+    list.counters.push(Box::new(RefCell::new(counter)));
 
-    channel_borrow.processing();
+    list.processing();
 
-    for child in channel_borrow.childs() {
+    for child in &mut list.counters {
         if let Ok(mut counter_borrowed) = child.try_borrow_mut() {
             println!("{:?}", counter_borrowed.consumption());
         }
