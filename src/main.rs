@@ -1,3 +1,5 @@
+#![feature(int_to_from_bytes)]
+
 extern crate byteorder;
 extern crate crc;
 extern crate serial;
@@ -139,8 +141,10 @@ impl ILinkChannel for SerialChannel {
         let mut result: Vec<u8> = (0..255).collect();
 
         if let Some(ref mut port) = self.port {
-            let reading = port.borrow_mut().read(&mut result[..]).unwrap();
-            result.truncate(reading);
+            match port.borrow_mut().read(&mut result[..]) {
+                Ok(reading) => result.truncate(reading),
+                Err(_) => result.truncate(0),
+            }
         };
         result
     }
@@ -160,7 +164,7 @@ impl CounterList {
     fn processing(&mut self) {
         for mut counter in &mut self.counters {
             if let Ok(mut counter_borrowed) = counter.try_borrow_mut() {
-               counter_borrowed.communicate();
+                counter_borrowed.communicate();
             }
         }
     }
@@ -207,15 +211,14 @@ impl ICounter for IMercury230 {
 
         // Генерируем пакет для получения расхода
         let mut consumption = vec![self.address, 05, 00, 01];
-        let my_crc = crc32::checksum_ieee(&consumption[..]);
-        let mut my_crc: Vec<u8> = unsafe { Vec::from_raw_parts(my_crc as *mut u8, 4, 4) };
-        consumption.append(&mut my_crc);
+        let my_crc = crc32::checksum_ieee(&consumption[..]).to_le_bytes();
+        consumption.extend_from_slice(&my_crc[..]);
 
         // Отсылаем пакет, получаем ответ и обрабатываем
         parent_borrowed.send(&consumption);
-        let question = parent_borrowed.read();
+        let response = parent_borrowed.read();
 
-        self.processing(consumption, question);
+        self.processing(consumption, response);
     }
 
     // Обработка ответов
