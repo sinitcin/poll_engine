@@ -3,17 +3,17 @@ extern crate crc;
 extern crate serial;
 extern crate uuid;
 
-use crc::{Hasher32, crc32};
-use std::io::Cursor;
 use byteorder::{BigEndian, ReadBytesExt};
-use uuid::Uuid;
-use std::iter::Iterator;
-use std::time::Duration;
+use crc::crc32;
+use serial::prelude::*;
+use std::cell::RefCell;
 #[allow(unused_imports)]
 use std::io::prelude::*;
-use serial::prelude::*;
+use std::io::Cursor;
+use std::iter::Iterator;
 use std::rc::Rc;
-use std::cell::RefCell;
+use std::time::Duration;
+use uuid::Uuid;
 
 /// Тип соответствует представлению последовательного порта
 type ISerialPort = Rc<RefCell<SerialPort>>;
@@ -42,7 +42,7 @@ trait ILinkChannel {
     /// Добавить дочерний элемент
     fn new_child(&mut self, child: Rc<RefCell<ICounter>>);
     /// Список дочерних элементов
-    fn childs(&self) -> Vec<Rc<RefCell<ICounter>>>;
+    fn childs(&self) -> &Vec<Rc<RefCell<ICounter>>>;
 }
 
 trait ICounter {
@@ -106,7 +106,6 @@ struct SerialChannel {
 }
 
 impl ILinkChannel for SerialChannel {
-
     fn new() -> SerialChannel {
         SerialChannel {
             port: None,
@@ -154,10 +153,10 @@ impl ILinkChannel for SerialChannel {
 
     // Производим обмен со всеми счётчиками
     fn processing(&mut self) {
-
-        for mut counter in &mut self._child {            
-            let mut counter_borrowed = counter.borrow_mut();
-            counter_borrowed.communicate();
+        for mut counter in &mut self._child {
+            if let Ok(mut counter_borrowed) = counter.try_borrow_mut() {
+                counter_borrowed.communicate();
+            }
         }
     }
 
@@ -167,8 +166,8 @@ impl ILinkChannel for SerialChannel {
     }
 
     // Список дочерних элементов
-    fn childs(&self) -> Vec<Rc<RefCell<ICounter>>> {
-        self._child.clone()
+    fn childs(&self) -> &Vec<Rc<RefCell<ICounter>>> {
+        &self._child
     }
 }
 
@@ -182,7 +181,6 @@ struct IMercury230 {
 }
 
 impl ICounter for IMercury230 {
-    
     // Конструктор
     fn new(channel: Rc<RefCell<ILinkChannel>>) -> Self {
         IMercury230 {
@@ -205,8 +203,7 @@ impl ICounter for IMercury230 {
 
     // Добавление в канал связи команд
     fn communicate(&mut self) {
-
-        // Получаем канал связи для работы 
+        // Получаем канал связи для работы
         let parent = self.parent();
         let mut parent_borrowed = parent.borrow_mut();
 
@@ -223,7 +220,7 @@ impl ICounter for IMercury230 {
         parent_borrowed.send(&consumption);
         let question = parent_borrowed.read();
 
-        self.processing(consumption, question);        
+        self.processing(consumption, question);
     }
 
     // Обработка ответов
@@ -279,7 +276,7 @@ impl ICounter for IMercury230 {
     }
 
     // Установим интервал между поверками
-    fn set_verification_interval(&mut self, interval: Duration) -> std::io::Result<()> {
+    fn set_verification_interval(&mut self, _interval: Duration) -> std::io::Result<()> {
         Ok(())
     }
 
@@ -295,22 +292,22 @@ impl IElectroCounter for IMercury230 {
     type Voltage = f32;
 
     // Активная энергия
-    fn active_energy(&self, phase: Self::Phase) -> Option<Self::Energy> {
+    fn active_energy(&self, _phase: Self::Phase) -> Option<Self::Energy> {
         None
     }
 
     // Реактивная энергия
-    fn reactive_energy(&self, phase: Self::Phase) -> Option<Self::Energy> {
+    fn reactive_energy(&self, _phase: Self::Phase) -> Option<Self::Energy> {
         None
     }
 
     // Действующие значения фазных токов
-    fn voltage(&self, phase: Self::Phase) -> Option<Self::Voltage> {
+    fn voltage(&self, _phase: Self::Phase) -> Option<Self::Voltage> {
         None
     }
 
     // Частота сети
-    fn frequencies(&self, phase: Self::Phase) -> Option<i32> {
+    fn frequencies(&self, _phase: Self::Phase) -> Option<i32> {
         None
     }
 }
@@ -319,9 +316,15 @@ impl IFaceMercury230 for IMercury230 {}
 
 fn main() {
     let channel = Rc::new(RefCell::new(SerialChannel::new()));
-    let counter = IMercury230::new(channel.clone());    
+    let counter = IMercury230::new(channel.clone());
     let mut channel_borrow = channel.borrow_mut();
     channel_borrow.new_child(Rc::new(RefCell::new(counter)));
-    
+
     channel_borrow.processing();
+
+    for child in channel_borrow.childs() {
+        if let Ok(mut counter_borrowed) = child.try_borrow_mut() {
+            println!("{:?}", counter_borrowed.consumption());
+        }
+    }
 }
