@@ -92,8 +92,6 @@ trait IElectroCounter: ICounter {
     fn frequencies(&self, phase: Self::Phase) -> Option<i32>;
 }
 
-trait IFaceMercury230: IElectroCounter {}
-
 struct SerialChannel {
     port: Option<ISerialPort>,
     port_name: String,
@@ -150,27 +148,7 @@ impl ILinkChannel for SerialChannel {
     }
 }
 
-#[derive(Default)]
-struct CounterList {
-    counters: Vec<Box<RefCell<dyn ICounter>>>,
-}
-
-impl CounterList {
-    fn new() -> Self {
-        Self::default()
-    }
-
-    // Производим обмен со всеми счётчиками
-    fn processing(&mut self) {
-        for mut counter in &mut self.counters {
-            if let Ok(mut counter_borrowed) = counter.try_borrow_mut() {
-                counter_borrowed.communicate();
-            }
-        }
-    }
-}
-
-struct IMercury230 {
+struct Mercury230 {
     _parent: Rc<RefCell<ILinkChannel>>,
     _consumption: IConsumption,
     _serial: Option<String>,
@@ -179,10 +157,10 @@ struct IMercury230 {
     address: u8,
 }
 
-impl ICounter for IMercury230 {
+impl ICounter for Mercury230 {
     // Конструктор
     fn new(channel: Rc<RefCell<ILinkChannel>>) -> Self {
-        IMercury230 {
+        Mercury230 {
             _parent: channel,
             _consumption: 0.0,
             _serial: None,
@@ -284,7 +262,7 @@ impl ICounter for IMercury230 {
     }
 }
 
-impl IElectroCounter for IMercury230 {
+impl IElectroCounter for Mercury230 {
     type Energy = f64;
     type Phase = i32;
     type Voltage = f32;
@@ -310,17 +288,42 @@ impl IElectroCounter for IMercury230 {
     }
 }
 
-impl IFaceMercury230 for IMercury230 {}
+trait IFaceMercury230 {
+    fn new() -> Self;
+    fn processing(&mut self);
+}
+
+#[derive(Default)]
+struct InterfaceMercury {
+    counters: Vec<Box<RefCell<dyn ICounter>>>,
+}
+
+impl IFaceMercury230 for InterfaceMercury  {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    // Производим обмен со всеми счётчиками
+    fn processing(&mut self) {
+        for mut counter in &mut self.counters {
+            if let Ok(mut counter_borrowed) = counter.try_borrow_mut() {
+                counter_borrowed.communicate();
+            }
+        }
+    }
+}
 
 fn main() {
     let channel = Rc::new(RefCell::new(SerialChannel::new()));
-    let counter = IMercury230::new(channel.clone());
-    let mut list = CounterList::new();
-    list.counters.push(Box::new(RefCell::new(counter)));
+    let counter = Mercury230::new(channel.clone());
+    let counter2 = Mercury230::new(channel.clone());
+    let mut interface = InterfaceMercury::new();
+    interface.counters.push(Box::new(RefCell::new(counter)));
+    interface.counters.push(Box::new(RefCell::new(counter2)));
 
-    list.processing();
+    interface.processing();
 
-    for child in &mut list.counters {
+    for child in &mut interface.counters {
         if let Ok(mut counter_borrowed) = child.try_borrow_mut() {
             println!("{:?}", counter_borrowed.consumption());
         }
