@@ -298,18 +298,18 @@ struct InterfaceMercury {
     counters: Vec<Box<RefCell<dyn ICounter>>>,
 }
 
-impl IFaceMercury230 for InterfaceMercury  {
+impl IFaceMercury230 for InterfaceMercury {
     fn new() -> Self {
         Self::default()
     }
 
     // Производим обмен со всеми счётчиками
     fn processing(&mut self) {
-        for mut counter in &mut self.counters {
+        let _ = self.counters.iter_mut().map(|counter| {
             if let Ok(mut counter_borrowed) = counter.try_borrow_mut() {
                 counter_borrowed.communicate();
             }
-        }
+        });
     }
 }
 
